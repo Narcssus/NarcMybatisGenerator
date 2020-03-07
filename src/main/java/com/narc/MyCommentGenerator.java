@@ -3,15 +3,10 @@ package com.narc;
 import org.mybatis.generator.api.CommentGenerator;
 import org.mybatis.generator.api.IntrospectedColumn;
 import org.mybatis.generator.api.IntrospectedTable;
-import org.mybatis.generator.api.MyBatisGenerator;
 import org.mybatis.generator.api.dom.java.*;
 import org.mybatis.generator.api.dom.xml.XmlElement;
-import org.mybatis.generator.internal.DefaultCommentGenerator;
-import org.mybatis.generator.internal.util.StringUtility;
 
 import java.text.SimpleDateFormat;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.Properties;
 import java.util.Set;
