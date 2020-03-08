@@ -15,9 +15,12 @@ import java.util.Set;
  * @author : Narcssus
  * @date : 2020/3/7 16:49
  */
+@SuppressWarnings("unused")
 public class MyCommentGenerator implements CommentGenerator {
 
     private Properties myProperties;
+    private String author;
+    private String dateFormat;
 
     public MyCommentGenerator() {
         myProperties = new Properties();
@@ -26,25 +29,46 @@ public class MyCommentGenerator implements CommentGenerator {
     @Override
     public void addConfigurationProperties(Properties properties) {
         // 获取自定义的 properties
-        this.myProperties.putAll(properties);
+        myProperties.putAll(properties);
+        author = myProperties.getProperty("author", "NarcMybatisGenerator");
+        dateFormat = myProperties.getProperty("dateFormat", "yyyy-MM-dd");
     }
 
     @Override
     public void addModelClassComment(TopLevelClass topLevelClass, IntrospectedTable introspectedTable) {
-        String author = myProperties.getProperty("author", "NarcMybatisGenerator");
-        String dateFormat = myProperties.getProperty("dateFormat", "yyyy-MM-dd");
+
         SimpleDateFormat dateFormatter = new SimpleDateFormat(dateFormat);
 
         // 获取表注释
         String remarks = introspectedTable.getRemarks();
         String tableName = introspectedTable.getAliasedFullyQualifiedTableNameAtRuntime();
         topLevelClass.addJavaDocLine("/**");
-        topLevelClass.addJavaDocLine(" * " + remarks);
         topLevelClass.addJavaDocLine(" * " + tableName);
+        topLevelClass.addJavaDocLine(" * " + remarks);
         topLevelClass.addJavaDocLine(" * ");
         topLevelClass.addJavaDocLine(" * @author " + author);
         topLevelClass.addJavaDocLine(" * @date " + dateFormatter.format(new Date()));
         topLevelClass.addJavaDocLine(" */");
+    }
+
+    @Override
+    public void addFieldComment(Field field, IntrospectedTable introspectedTable, IntrospectedColumn introspectedColumn) {
+        // 获取列注释
+        String remarks = introspectedColumn.getRemarks();
+        String columnName = introspectedColumn.getActualColumnName();
+        field.addJavaDocLine("/**");
+        field.addJavaDocLine(" * " + columnName);
+        field.addJavaDocLine(" * " + remarks);
+        field.addJavaDocLine(" */");
+        //增加长度校验
+        if (introspectedColumn.isJdbcCharacterColumn()) {
+            int length = introspectedColumn.getLength();
+            field.addAnnotation("@Size(max=" + length + ")");
+        }
+        //增加非空校验
+        if(!introspectedColumn.isNullable()){
+            field.addAnnotation("@NotNull");
+        }
     }
 
     @Override
@@ -114,26 +138,6 @@ public class MyCommentGenerator implements CommentGenerator {
     @Override
     public void addClassAnnotation(InnerClass innerClass, IntrospectedTable introspectedTable, Set<FullyQualifiedJavaType> imports) {
 
-    }
-
-    @Override
-    public void addFieldComment(Field field, IntrospectedTable introspectedTable, IntrospectedColumn introspectedColumn) {
-        // 获取列注释
-        String remarks = introspectedColumn.getRemarks();
-        String columnName = introspectedColumn.getActualColumnName();
-        field.addJavaDocLine("/**");
-        field.addJavaDocLine(" * " + remarks);
-        field.addJavaDocLine(" * " + columnName);
-        field.addJavaDocLine(" */");
-        //增加长度校验
-        if (introspectedColumn.isJdbcCharacterColumn()) {
-            int length = introspectedColumn.getLength();
-            field.addAnnotation("@Size(max=" + length + ")");
-        }
-        //增加非空校验
-        if(!introspectedColumn.isNullable()){
-            field.addAnnotation("@NotNull");
-        }
     }
 
     @Override
