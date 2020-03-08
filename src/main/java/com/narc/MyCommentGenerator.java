@@ -20,7 +20,7 @@ public class MyCommentGenerator implements CommentGenerator {
 
     private Properties myProperties;
     private String author;
-    private String dateFormat;
+    private SimpleDateFormat dateFormatter;
 
     public MyCommentGenerator() {
         myProperties = new Properties();
@@ -31,13 +31,11 @@ public class MyCommentGenerator implements CommentGenerator {
         // 获取自定义的 properties
         myProperties.putAll(properties);
         author = myProperties.getProperty("author", "NarcMybatisGenerator");
-        dateFormat = myProperties.getProperty("dateFormat", "yyyy-MM-dd");
+        dateFormatter = new SimpleDateFormat(myProperties.getProperty("dateFormat", "yyyy-MM-dd"));
     }
 
     @Override
     public void addModelClassComment(TopLevelClass topLevelClass, IntrospectedTable introspectedTable) {
-
-        SimpleDateFormat dateFormatter = new SimpleDateFormat(dateFormat);
 
         // 获取表注释
         String remarks = introspectedTable.getRemarks();
