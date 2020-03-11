@@ -24,7 +24,6 @@ public class MyPluginAdapter extends PluginAdapter {
     private String targetPackage;
     private String targetProject;
     private String targetProjectXml;
-    private String daoBaseName;
     private String baseDir;
     private String targetPackageXml;
     private String targetPackageService;
@@ -33,6 +32,10 @@ public class MyPluginAdapter extends PluginAdapter {
     private SimpleDateFormat dateFormatter;
     private boolean isOverWrite;
     private String tagString;
+
+    private String mapperName;
+    private String mapperExtendName;
+    private String daoServiceName;
 
 
     @Override
@@ -61,12 +64,11 @@ public class MyPluginAdapter extends PluginAdapter {
 
     @Override
     public boolean modelBaseRecordClassGenerated(TopLevelClass topLevelClass, IntrospectedTable introspectedTable) {
-        //添加domain的import
+        //import
         topLevelClass.addImportedType("lombok.Data");
         topLevelClass.addImportedType("javax.validation.constraints.*");
-        //添加domain的注解
+        //注解
         topLevelClass.addAnnotation("@Data");
-
         return true;
     }
 
@@ -96,7 +98,9 @@ public class MyPluginAdapter extends PluginAdapter {
 
     @Override
     public boolean sqlMapGenerated(GeneratedXmlFile sqlMap, IntrospectedTable introspectedTable) {
-        daoBaseName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend";
+        mapperName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper";
+        mapperExtendName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend";
+        daoServiceName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend";
         sqlMap.setMergeable(false);
         return true;
     }
@@ -116,7 +120,7 @@ public class MyPluginAdapter extends PluginAdapter {
     }
 
     private GeneratedJavaFile generateExtendMapper(IntrospectedTable introspectedTable) {
-        String filePath = genFilePath(baseDir, targetProject, targetPackage, daoBaseName, ".java");
+        String filePath = genFilePath(baseDir, targetProject, targetPackage, mapperExtendName, ".java");
 
         if (!isOverWrite && new File(filePath).exists()) {
             //不重写
@@ -124,17 +128,14 @@ public class MyPluginAdapter extends PluginAdapter {
             return null;
         }
 
-        String domainObjectName = introspectedTable.getFullyQualifiedTable().getDomainObjectName();
         //继承接口
-        FullyQualifiedJavaType superClassType = new FullyQualifiedJavaType(domainObjectName + "Mapper");
-        Interface unit = new Interface(targetPackage + "." + daoBaseName);
+        FullyQualifiedJavaType superClassType = new FullyQualifiedJavaType(mapperName);
+        Interface unit = new Interface(targetPackage + "." + mapperExtendName);
         unit.addSuperInterface(superClassType);
         unit.setVisibility(JavaVisibility.PUBLIC);
-
         //import
-        unit.addImportedType( new FullyQualifiedJavaType(introspectedTable.getMyBatis3JavaMapperType()));
+        unit.addImportedType(new FullyQualifiedJavaType(introspectedTable.getMyBatis3JavaMapperType()));
         unit.addImportedType(new FullyQualifiedJavaType("org.apache.ibatis.annotations.Mapper"));
-
         //增加注解
         unit.addAnnotation("@Mapper");
         //增加注释
@@ -151,7 +152,6 @@ public class MyPluginAdapter extends PluginAdapter {
         if (targetPackageService == null || targetPackageService.length() == 0) {
             return null;
         }
-        String daoServiceName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "DaoService";
         String filePath = genFilePath(baseDir, targetProject, targetPackageService, daoServiceName, ".java");
 
         if (!isOverWrite && new File(filePath).exists()) {
@@ -172,18 +172,12 @@ public class MyPluginAdapter extends PluginAdapter {
         //类注解
         topLevelClass.addAnnotation("@Service");
         //属性
-        Field field = new Field(
-                lowerFirst(introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper"),
-                new FullyQualifiedJavaType(introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper")
-        );
+        Field field = new Field(lowerFirst(mapperName), new FullyQualifiedJavaType(mapperName));
         field.setVisibility(JavaVisibility.PRIVATE);
         field.addAnnotation("@Resource");
         topLevelClass.addField(field);
 
-        field = new Field(
-                lowerFirst(introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend"),
-                new FullyQualifiedJavaType(introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend")
-        );
+        field = new Field(lowerFirst(mapperExtendName), new FullyQualifiedJavaType(mapperExtendName));
         field.setVisibility(JavaVisibility.PRIVATE);
         field.addAnnotation("@Resource");
         topLevelClass.addField(field);
@@ -200,7 +194,7 @@ public class MyPluginAdapter extends PluginAdapter {
 
     @Override
     public List<GeneratedXmlFile> contextGenerateAdditionalXmlFiles(IntrospectedTable introspectedTable) {
-        String filePath = genFilePath(baseDir, targetProjectXml, targetPackageXml, daoBaseName, ".xml");
+        String filePath = genFilePath(baseDir, targetProjectXml, targetPackageXml, mapperExtendName, ".xml");
         List<String> oldFileContent = new ArrayList<>();
         String domainType = introspectedTable.getBaseRecordType();
         Document document = new Document(
@@ -208,7 +202,7 @@ public class MyPluginAdapter extends PluginAdapter {
                 XmlConstants.MYBATIS3_MAPPER_SYSTEM_ID);
         XmlElement root = new XmlElement("mapper");
         document.setRootElement(root);
-        root.addAttribute(new Attribute("namespace", targetPackage + "." + daoBaseName));
+        root.addAttribute(new Attribute("namespace", targetPackage + "." + mapperExtendName));
         root.addElement(new TextElement("<!--"));
         root.addElement(new TextElement("注释"));
         root.addElement(new TextElement("-->"));
@@ -220,28 +214,17 @@ public class MyPluginAdapter extends PluginAdapter {
         List<IntrospectedColumn> primaryKeyColumns = introspectedTable.getPrimaryKeyColumns();
         for (IntrospectedColumn primaryKeyColumn : primaryKeyColumns) {
             this.addResultElement(resultMap,
-                    "id",
-                    primaryKeyColumn.getActualColumnName(),
-                    primaryKeyColumn.getJdbcTypeName(),
-                    primaryKeyColumn.getJavaProperty());
+                    "id", primaryKeyColumn.getActualColumnName(), primaryKeyColumn.getJdbcTypeName(), primaryKeyColumn.getJavaProperty());
         }
 
         List<IntrospectedColumn> baseColumns = introspectedTable.getBaseColumns();
         for (IntrospectedColumn baseColumn : baseColumns) {
-            this.addResultElement(resultMap,
-                    "result",
-                    baseColumn.getActualColumnName(),
-                    baseColumn.getJdbcTypeName(),
-                    baseColumn.getJavaProperty());
+            this.addResultElement(resultMap, "result", baseColumn.getActualColumnName(), baseColumn.getJdbcTypeName(), baseColumn.getJavaProperty());
         }
 
         List<IntrospectedColumn> blobColumns = introspectedTable.getBLOBColumns();
         for (IntrospectedColumn blobColumn : blobColumns) {
-            this.addResultElement(resultMap,
-                    "result",
-                    blobColumn.getActualColumnName(),
-                    blobColumn.getJdbcTypeName(),
-                    blobColumn.getJavaProperty());
+            this.addResultElement(resultMap, "result", blobColumn.getActualColumnName(), blobColumn.getJdbcTypeName(), blobColumn.getJavaProperty());
         }
         root.addElement(resultMap);
 
@@ -288,7 +271,7 @@ public class MyPluginAdapter extends PluginAdapter {
         }
 
         GeneratedXmlFile gxf = new GeneratedXmlFile(document,
-                daoBaseName + ".xml",
+                mapperExtendName + ".xml",
                 targetPackageXml,
                 targetProjectXml,
                 false, context.getXmlFormatter());
