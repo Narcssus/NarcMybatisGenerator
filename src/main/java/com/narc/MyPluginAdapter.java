@@ -12,8 +12,10 @@ import org.mybatis.generator.codegen.XmlConstants;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @author : Narcssus
@@ -100,7 +102,7 @@ public class MyPluginAdapter extends PluginAdapter {
     public boolean sqlMapGenerated(GeneratedXmlFile sqlMap, IntrospectedTable introspectedTable) {
         mapperName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper";
         mapperExtendName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend";
-        daoServiceName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend";
+        daoServiceName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "DaoService";
         sqlMap.setMergeable(false);
         return true;
     }
@@ -192,6 +194,12 @@ public class MyPluginAdapter extends PluginAdapter {
     }
 
 
+    /**
+     * 生成额外的mapper.xml文件
+     *
+     * @param introspectedTable
+     * @return
+     */
     @Override
     public List<GeneratedXmlFile> contextGenerateAdditionalXmlFiles(IntrospectedTable introspectedTable) {
         String filePath = genFilePath(baseDir, targetProjectXml, targetPackageXml, mapperExtendName, ".xml");
@@ -229,22 +237,57 @@ public class MyPluginAdapter extends PluginAdapter {
         root.addElement(resultMap);
 
         List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
-        StringBuilder builder = new StringBuilder();
-        for (IntrospectedColumn column : allColumns) {
-            builder.append(column.getActualColumnName()).append(", ");
-        }
-        String columnsText = builder.substring(0, builder.length() - 2);
+        String columnsText = allColumns.stream().map(IntrospectedColumn::getActualColumnName)
+                .collect(Collectors.joining(","));
 
         XmlElement baseColumnList = new XmlElement("sql");
         baseColumnList.addAttribute(new Attribute("id", "Base_Column_List"));
         baseColumnList.addElement(new TextElement(columnsText));
         root.addElement(baseColumnList);
 
+
+        XmlElement itemSql = new XmlElement("sql");
+        itemSql.addAttribute(new Attribute("id", "Base_Insert_Column_List"));
+        columnsText = allColumns.stream().map(t -> "#{item." + t.getJavaProperty() + "}")
+                .collect(Collectors.joining(","));
+
+        itemSql.addElement(new TextElement(columnsText));
+        root.addElement(itemSql);
+
+
+        XmlElement insertBatch = new XmlElement("insert");
+        insertBatch.addAttribute(new Attribute("id", "insertForeach"));
+        insertBatch.addAttribute(new Attribute("parameterType", "java.util.List"));
+
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("insert into ").append(introspectedTable.getFullyQualifiedTable()).append("(");
+        String columns = allColumns.stream().map(IntrospectedColumn::getActualColumnName)
+                .collect(Collectors.joining(","));
+        stringBuilder.append(columns);
+        stringBuilder.append(") values");
+        insertBatch.addElement(new TextElement(stringBuilder.toString()));
+
+        XmlElement foreach = new XmlElement("foreach");
+        foreach.addAttribute(new Attribute("collection", "list"));
+        foreach.addAttribute(new Attribute("item", "item"));
+        foreach.addAttribute(new Attribute("index", "index"));
+        foreach.addAttribute(new Attribute("separator", ","));
+        foreach.addElement(new TextElement("("));
+        XmlElement include = new XmlElement("include");
+        include.addAttribute(new Attribute("refid", "Base_Insert_Column_List"));
+        foreach.addElement(include);
+        foreach.addElement(new TextElement(")"));
+
+        insertBatch.addElement(foreach);
+
+        root.addElement(insertBatch);
+
+
         if (isOverWrite || !new File(filePath).exists()) {
             //如果需要重新或是新生成文件
             root.addElement(new TextElement("<!-- " + tagString + "-->"));
         } else {
-            System.out.println(filePath + "文件存在，续写文件");
+            System.out.println(filePath + "文件存在，重写非自定义部分");
             oldFileContent = FileUtils.readFileToListByLine(filePath.toString());
             boolean flag = false;
             for (String str : oldFileContent) {
