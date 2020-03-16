@@ -82,7 +82,65 @@ public class MyPluginAdapter extends PluginAdapter {
         interfaze.addJavaDocLine(" * @date " + dateFormatter.format(new Date()));
         interfaze.addJavaDocLine("*/");
         interfaze.addAnnotation("@Mapper");
+        interfaze.addAnnotation("@SuppressWarnings(\"unused\")");
         interfaze.addImportedType(new FullyQualifiedJavaType("org.apache.ibatis.annotations.Mapper"));
+
+        //增加批量插入接口
+        Method method = new Method("insertBatch");
+        method.setAbstract(true);
+        method.setReturnType(FullyQualifiedJavaType.getIntInstance());
+        String paraJavaType = "List<" + introspectedTable.getFullyQualifiedTable().getDomainObjectName() + ">";
+        method.addParameter(new Parameter(new FullyQualifiedJavaType(paraJavaType), "records"));
+        interfaze.addMethod(method);
+
+        return true;
+    }
+
+    /**
+     * 在XML中增加批量插入的SQL
+     * @param document
+     * @param introspectedTable
+     * @return
+     */
+    @Override
+    public boolean sqlMapDocumentGenerated(Document document,
+                                           IntrospectedTable introspectedTable) {
+        XmlElement root = document.getRootElement();
+        List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
+        XmlElement itemSql = new XmlElement("sql");
+        itemSql.addAttribute(new Attribute("id", "Batch_Insert_Column_List"));
+        // TODO: 2020/3/16 增加换行
+        String columnsText = allColumns.stream().map(t -> "#{item." + t.getJavaProperty() + "}")
+                .collect(Collectors.joining(","));
+        itemSql.addElement(new TextElement(columnsText));
+        root.addElement(itemSql);
+
+        XmlElement insertBatch = new XmlElement("insert");
+        insertBatch.addAttribute(new Attribute("id", "insertBatch"));
+        insertBatch.addAttribute(new Attribute("parameterType", "java.util.List"));
+
+        insertBatch.addElement(new TextElement("insert into " + introspectedTable.getFullyQualifiedTable() + "("));
+
+        XmlElement include = new XmlElement("include");
+        include.addAttribute(new Attribute("refid", "Base_Column_List"));
+        insertBatch.addElement(include);
+        insertBatch.addElement(new TextElement(") values"));
+
+        XmlElement foreach = new XmlElement("foreach");
+        foreach.addAttribute(new Attribute("collection", "list"));
+        foreach.addAttribute(new Attribute("item", "item"));
+        foreach.addAttribute(new Attribute("index", "index"));
+        foreach.addAttribute(new Attribute("separator", ","));
+        foreach.addElement(new TextElement("("));
+        include = new XmlElement("include");
+        include.addAttribute(new Attribute("refid", "Batch_Insert_Column_List"));
+        foreach.addElement(include);
+        foreach.addElement(new TextElement(")"));
+
+        insertBatch.addElement(foreach);
+
+        root.addElement(insertBatch);
+
         return true;
     }
 
@@ -121,6 +179,12 @@ public class MyPluginAdapter extends PluginAdapter {
         return res;
     }
 
+    /**
+     * 生成额外的Mapper接口
+     *
+     * @param introspectedTable
+     * @return
+     */
     private GeneratedJavaFile generateExtendMapper(IntrospectedTable introspectedTable) {
         String filePath = genFilePath(baseDir, targetProject, targetPackage, mapperExtendName, ".java");
 
@@ -136,10 +200,10 @@ public class MyPluginAdapter extends PluginAdapter {
         unit.addSuperInterface(superClassType);
         unit.setVisibility(JavaVisibility.PUBLIC);
         //import
-        unit.addImportedType(new FullyQualifiedJavaType(introspectedTable.getMyBatis3JavaMapperType()));
         unit.addImportedType(new FullyQualifiedJavaType("org.apache.ibatis.annotations.Mapper"));
         //增加注解
         unit.addAnnotation("@Mapper");
+        unit.addAnnotation("@SuppressWarnings(\"unused\")");
         //增加注释
         unit.addJavaDocLine("/**");
         unit.addJavaDocLine(" * ");
@@ -244,44 +308,6 @@ public class MyPluginAdapter extends PluginAdapter {
         baseColumnList.addAttribute(new Attribute("id", "Base_Column_List"));
         baseColumnList.addElement(new TextElement(columnsText));
         root.addElement(baseColumnList);
-
-
-        XmlElement itemSql = new XmlElement("sql");
-        itemSql.addAttribute(new Attribute("id", "Base_Insert_Column_List"));
-        columnsText = allColumns.stream().map(t -> "#{item." + t.getJavaProperty() + "}")
-                .collect(Collectors.joining(","));
-
-        itemSql.addElement(new TextElement(columnsText));
-        root.addElement(itemSql);
-
-
-        XmlElement insertBatch = new XmlElement("insert");
-        insertBatch.addAttribute(new Attribute("id", "insertForeach"));
-        insertBatch.addAttribute(new Attribute("parameterType", "java.util.List"));
-
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("insert into ").append(introspectedTable.getFullyQualifiedTable()).append("(");
-        String columns = allColumns.stream().map(IntrospectedColumn::getActualColumnName)
-                .collect(Collectors.joining(","));
-        stringBuilder.append(columns);
-        stringBuilder.append(") values");
-        insertBatch.addElement(new TextElement(stringBuilder.toString()));
-
-        XmlElement foreach = new XmlElement("foreach");
-        foreach.addAttribute(new Attribute("collection", "list"));
-        foreach.addAttribute(new Attribute("item", "item"));
-        foreach.addAttribute(new Attribute("index", "index"));
-        foreach.addAttribute(new Attribute("separator", ","));
-        foreach.addElement(new TextElement("("));
-        XmlElement include = new XmlElement("include");
-        include.addAttribute(new Attribute("refid", "Base_Insert_Column_List"));
-        foreach.addElement(include);
-        foreach.addElement(new TextElement(")"));
-
-        insertBatch.addElement(foreach);
-
-        root.addElement(insertBatch);
-
 
         if (isOverWrite || !new File(filePath).exists()) {
             //如果需要重新或是新生成文件
