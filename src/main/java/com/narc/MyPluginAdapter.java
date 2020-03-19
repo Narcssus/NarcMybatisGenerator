@@ -8,13 +8,11 @@ import org.mybatis.generator.api.dom.xml.Document;
 import org.mybatis.generator.api.dom.xml.TextElement;
 import org.mybatis.generator.api.dom.xml.XmlElement;
 import org.mybatis.generator.codegen.XmlConstants;
+import org.mybatis.generator.codegen.mybatis3.MyBatis3FormattingUtilities;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -98,6 +96,7 @@ public class MyPluginAdapter extends PluginAdapter {
 
     /**
      * 在XML中增加批量插入的SQL
+     *
      * @param document
      * @param introspectedTable
      * @return
@@ -109,10 +108,23 @@ public class MyPluginAdapter extends PluginAdapter {
         List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
         XmlElement itemSql = new XmlElement("sql");
         itemSql.addAttribute(new Attribute("id", "Batch_Insert_Column_List"));
-        // TODO: 2020/3/16 增加换行
-        String columnsText = allColumns.stream().map(t -> "#{item." + t.getJavaProperty() + "}")
-                .collect(Collectors.joining(","));
-        itemSql.addElement(new TextElement(columnsText));
+        StringBuilder sb = new StringBuilder();
+        Iterator<String> iter =
+                allColumns.stream().map(t -> "#{item." + t.getJavaProperty() + "}")
+                        .collect(Collectors.toList()).iterator();
+        while (iter.hasNext()) {
+            sb.append(iter.next());
+            if (iter.hasNext()) {
+                sb.append(", ");
+            }
+            if (sb.length() > 80) {
+                itemSql.addElement(new TextElement(sb.toString()));
+                sb.setLength(0);
+            }
+        }
+        if (sb.length() > 0) {
+            itemSql.addElement(new TextElement(sb.toString()));
+        }
         root.addElement(itemSql);
 
         XmlElement insertBatch = new XmlElement("insert");
@@ -276,7 +288,9 @@ public class MyPluginAdapter extends PluginAdapter {
         document.setRootElement(root);
         root.addAttribute(new Attribute("namespace", targetPackage + "." + mapperExtendName));
         root.addElement(new TextElement("<!--"));
-        root.addElement(new TextElement("注释"));
+        root.addElement(new TextElement("该文件是由NarcMybatisGenerator自动生成的文件"));
+        root.addElement(new TextElement("建议将所有自定义的SQL保存在该文件中"));
+        root.addElement(new TextElement("请注意不要删除此文件的注释内容"));
         root.addElement(new TextElement("-->"));
 
         XmlElement resultMap = new XmlElement("resultMap");
@@ -299,14 +313,27 @@ public class MyPluginAdapter extends PluginAdapter {
             this.addResultElement(resultMap, "result", blobColumn.getActualColumnName(), blobColumn.getJdbcTypeName(), blobColumn.getJavaProperty());
         }
         root.addElement(resultMap);
-
-        List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
-        String columnsText = allColumns.stream().map(IntrospectedColumn::getActualColumnName)
-                .collect(Collectors.joining(","));
-
         XmlElement baseColumnList = new XmlElement("sql");
         baseColumnList.addAttribute(new Attribute("id", "Base_Column_List"));
-        baseColumnList.addElement(new TextElement(columnsText));
+
+        List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
+
+        Iterator<IntrospectedColumn> iter =allColumns.iterator();
+        StringBuilder sb = new StringBuilder();
+        while (iter.hasNext()) {
+            sb.append(MyBatis3FormattingUtilities.getSelectListPhrase(iter
+                    .next()));
+            if (iter.hasNext()) {
+                sb.append(", "); //$NON-NLS-1$
+            }
+            if (sb.length() > 80) {
+                baseColumnList.addElement(new TextElement(sb.toString()));
+                sb.setLength(0);
+            }
+        }
+        if (sb.length() > 0) {
+            baseColumnList.addElement(new TextElement(sb.toString()));
+        }
         root.addElement(baseColumnList);
 
         if (isOverWrite || !new File(filePath).exists()) {
