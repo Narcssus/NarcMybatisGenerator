@@ -21,44 +21,37 @@ import java.util.stream.Collectors;
  */
 public class MyPluginAdapter extends PluginAdapter {
 
-    private String targetPackage;
     private String targetProject;
     private String targetProjectXml;
     private String baseDir;
-    private String targetPackageXml;
-    private String targetPackageService;
+    private String basePackage;
 
     private String author;
     private SimpleDateFormat dateFormatter;
     private boolean isOverWrite;
     private String tagString;
+    private String targetPackageXml;
 
     private String mapperName;
-    private String mapperExtendName;
     private String daoServiceName;
+
+    private String servicePackage;
+    private String dtoName;
 
 
     @Override
     public boolean validate(List<String> list) {
-        author = properties.getProperty("author", "NarcMybatisGenerator");
+        author = properties.getProperty("author", "MybatisGenerator");
         dateFormatter = new SimpleDateFormat(properties.getProperty("dateFormat", "yyyy-MM-dd"));
         isOverWrite = Boolean.parseBoolean(properties.getProperty("isOverWrite", "false"));
         tagString = properties.getProperty("tagString", "该注释以下的内容不会被覆盖，请不要删除或修改此条注释内容");
 
         baseDir = properties.getProperty("baseDir");
-        targetPackage = properties.getProperty("targetPackage");
-        targetProject = properties.getProperty("targetProject");
-        targetProjectXml = properties.getProperty("targetProjectXml");
         targetPackageXml = properties.getProperty("targetPackageXml");
-        targetPackageService = properties.getProperty("targetPackageService");
-
-        if (baseDir == null || baseDir.trim().isEmpty()
-                || targetPackage == null || targetPackage.trim().isEmpty()
-                || targetProject == null || targetProject.trim().isEmpty()
-                || targetProjectXml == null || targetProjectXml.trim().isEmpty()
-                || targetPackageXml == null || targetPackageXml.trim().isEmpty()) {
-            return false;
-        }
+        targetProjectXml = "src/main/resources";
+        targetProject = "src/main/java";
+        basePackage = properties.getProperty("basePackage");
+        servicePackage = basePackage;
         return true;
     }
 
@@ -69,11 +62,109 @@ public class MyPluginAdapter extends PluginAdapter {
         topLevelClass.addImportedType("javax.validation.constraints.*");
         //注解
         topLevelClass.addAnnotation("@Data");
+
+        String tt = introspectedTable.getFullyQualifiedTable().getDomainObjectName();
+        String[] ttt = tt.split(":");
+        servicePackage = basePackage + "." + ttt[0];
+        dtoName = ttt[1];
+        settt(introspectedTable.getFullyQualifiedTable());
+        introspectedTable.setMyBatis3JavaMapperType(servicePackage + ".bean.dao." + introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper");
+        introspectedTable.setBaseRecordType(servicePackage + ".bean.dto." + introspectedTable.getFullyQualifiedTable().getDomainObjectName());
+        introspectedTable.setMyBatis3XmlMapperFileName(dtoName + "Mapper.xml");
+        settt(topLevelClass);
+        //文件存在不生成
+        String filePath = genFilePath(baseDir, targetProject, servicePackage + ".bean.dto", introspectedTable.getFullyQualifiedTable().getDomainObjectName(), ".java");
+        if (new File(filePath).exists()) {
+            //加上自己的字段
+            List<String> oldFileContent = FileUtils.readFileToListByLine(filePath.toString());
+            List<Field> fields = topLevelClass.getFields();
+            List<String> newFields = fields.stream().map(Field::getName).collect(Collectors.toList());
+            boolean flag = false;
+            List<String> buffer = new ArrayList<>();
+            for (String str : oldFileContent) {
+                if (str.startsWith("    ")) {
+                    //删除前面的空格，对齐格式
+                    str = str.substring(4);
+                }
+                if (str.contains("{")) {
+                    flag = true;
+                    continue;
+                }
+                if (str.contains("}")) {
+                    flag = false;
+                }
+                if (flag && str != null && str.length() > 0) {
+                    buffer.add(str);
+                    if(str.contains("private")){
+                        str = str.replaceAll(";","");
+                        String[] ss = str.split(" ");
+                        if(newFields.contains(ss[ss.length-1])){
+                            buffer.clear();
+                            continue;
+                        }
+                        //属性
+                        Field field = new Field(ss[ss.length-1], new FullyQualifiedJavaType(ss[ss.length-2]));
+                        field.setVisibility(JavaVisibility.PRIVATE);
+                        for(int i=0;i<buffer.size()-1;i++){
+                            field.addJavaDocLine(buffer.get(i));
+                        }
+                        topLevelClass.addField(field);
+                        buffer.clear();
+                    }
+                }
+
+            }
+
+
+        }
+
+
         return true;
+    }
+
+    private void settt(FullyQualifiedTable fullyQualifiedTable) {
+        try {
+            java.lang.reflect.Field[] fields = fullyQualifiedTable.getClass().getFields();
+            java.lang.reflect.Field f1 = fullyQualifiedTable.getClass().getDeclaredField("domainObjectName");
+            f1.setAccessible(true);
+            f1.set(fullyQualifiedTable, dtoName);
+        } catch (Exception e) {
+
+        }
+    }
+
+    private void settt(TopLevelClass topLevelClass) {
+        try {
+            FullyQualifiedJavaType type = topLevelClass.getType();
+            java.lang.reflect.Field[] fields = type.getClass().getFields();
+            java.lang.reflect.Field f1 = type.getClass().getDeclaredField("packageName");
+            f1.setAccessible(true);
+            f1.set(type, servicePackage + ".bean.dto");
+
+            java.lang.reflect.Field f3 = type.getClass().getDeclaredField("baseShortName");
+            f3.setAccessible(true);
+            f3.set(type, dtoName);
+
+            java.lang.reflect.Field f2 = type.getClass().getDeclaredField("baseQualifiedName");
+            f2.setAccessible(true);
+            f2.set(type, type.getPackageName() + "." + type.getShortName());
+
+
+        } catch (Exception e) {
+
+        }
+
     }
 
     @Override
     public boolean clientGenerated(Interface interfaze, IntrospectedTable introspectedTable) {
+        //文件存在不生成
+        String filePath = genFilePath(baseDir, targetProject, servicePackage + ".bean.dao", introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper", ".java");
+        if (!isOverWrite && new File(filePath).exists()) {
+            //不重写文件
+            System.out.println(filePath + "文件存在，不生成");
+            return false;
+        }
         //Mapper文件的注释
         interfaze.addJavaDocLine("/**");
         interfaze.addJavaDocLine(" * @author " + author);
@@ -82,6 +173,7 @@ public class MyPluginAdapter extends PluginAdapter {
         interfaze.addAnnotation("@Mapper");
         interfaze.addAnnotation("@SuppressWarnings(\"unused\")");
         interfaze.addImportedType(new FullyQualifiedJavaType("org.apache.ibatis.annotations.Mapper"));
+        interfaze.addImportedType(new FullyQualifiedJavaType("java.util.List"));
 
         //增加批量插入接口
         Method method = new Method("insertBatch");
@@ -152,196 +244,14 @@ public class MyPluginAdapter extends PluginAdapter {
         insertBatch.addElement(foreach);
 
         root.addElement(insertBatch);
-
-        return true;
-    }
-
-    @Override
-    public boolean modelSetterMethodGenerated(Method method, TopLevelClass topLevelClass, IntrospectedColumn introspectedColumn, IntrospectedTable introspectedTable, ModelClassType modelClassType) {
-        //不生成getter
-        return false;
-    }
-
-    @Override
-    public boolean modelGetterMethodGenerated(Method method, TopLevelClass topLevelClass, IntrospectedColumn introspectedColumn, IntrospectedTable introspectedTable, ModelClassType modelClassType) {
-        //不生成setter
-        return false;
-    }
-
-    @Override
-    public boolean sqlMapGenerated(GeneratedXmlFile sqlMap, IntrospectedTable introspectedTable) {
         mapperName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper";
-        mapperExtendName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "MapperExtend";
-        daoServiceName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "DaoService";
-        sqlMap.setMergeable(false);
-        return true;
-    }
-
-    @Override
-    public List<GeneratedJavaFile> contextGenerateAdditionalJavaFiles(IntrospectedTable introspectedTable) {
-        List<GeneratedJavaFile> res = new ArrayList<>();
-        GeneratedJavaFile extendMapper = generateExtendMapper(introspectedTable);
-        GeneratedJavaFile daoService = generateDaoService(introspectedTable);
-        if (extendMapper != null) {
-            res.add(extendMapper);
-        }
-        if (daoService != null) {
-            res.add(daoService);
-        }
-        return res;
-    }
-
-    /**
-     * 生成额外的Mapper接口
-     *
-     * @param introspectedTable
-     * @return
-     */
-    private GeneratedJavaFile generateExtendMapper(IntrospectedTable introspectedTable) {
-        String filePath = genFilePath(baseDir, targetProject, targetPackage, mapperExtendName, ".java");
-
-        if (!isOverWrite && new File(filePath).exists()) {
-            //不重写
-            System.out.println(filePath + "文件存在，不生成");
-            return null;
-        }
-
-        //继承接口
-        FullyQualifiedJavaType superClassType = new FullyQualifiedJavaType(mapperName);
-        Interface unit = new Interface(targetPackage + "." + mapperExtendName);
-        unit.addSuperInterface(superClassType);
-        unit.setVisibility(JavaVisibility.PUBLIC);
-        //import
-        unit.addImportedType(new FullyQualifiedJavaType("org.apache.ibatis.annotations.Mapper"));
-        //增加注解
-        unit.addAnnotation("@Mapper");
-        unit.addAnnotation("@SuppressWarnings(\"unused\")");
-        //增加注释
-        unit.addJavaDocLine("/**");
-        unit.addJavaDocLine(" * ");
-        unit.addJavaDocLine(" * @author " + author);
-        unit.addJavaDocLine(" * @date " + dateFormatter.format(new Date()));
-        unit.addJavaDocLine(" */");
-
-        return new GeneratedJavaFile(unit, targetProject, "utf-8", this.context.getJavaFormatter());
-    }
-
-    private GeneratedJavaFile generateDaoService(IntrospectedTable introspectedTable) {
-        if (targetPackageService == null || targetPackageService.length() == 0) {
-            return null;
-        }
-        String filePath = genFilePath(baseDir, targetProject, targetPackageService, daoServiceName, ".java");
-
-        if (!isOverWrite && new File(filePath).exists()) {
-            //不重写文件
-            System.out.println(filePath + "文件存在，不生成");
-            return null;
-        }
-        //类名
-        TopLevelClass topLevelClass = new TopLevelClass(targetPackageService + "." + daoServiceName);
-        //权限
-        topLevelClass.setVisibility(JavaVisibility.PUBLIC);
-        //import
-        topLevelClass.addImportedType(introspectedTable.getBaseRecordType());
-        topLevelClass.addImportedType(introspectedTable.getMyBatis3JavaMapperType());
-        topLevelClass.addImportedType(introspectedTable.getMyBatis3JavaMapperType() + "Extend");
-        topLevelClass.addImportedType("org.springframework.stereotype.Service");
-        topLevelClass.addImportedType("javax.annotation.Resource");
-        //类注解
-        topLevelClass.addAnnotation("@Service");
-        //属性
-        Field field = new Field(lowerFirst(mapperName), new FullyQualifiedJavaType(mapperName));
-        field.setVisibility(JavaVisibility.PRIVATE);
-        field.addAnnotation("@Resource");
-        topLevelClass.addField(field);
-
-        field = new Field(lowerFirst(mapperExtendName), new FullyQualifiedJavaType(mapperExtendName));
-        field.setVisibility(JavaVisibility.PRIVATE);
-        field.addAnnotation("@Resource");
-        topLevelClass.addField(field);
-        //类注释
-        topLevelClass.addJavaDocLine("/**");
-        topLevelClass.addJavaDocLine(" * DaoService");
-        topLevelClass.addJavaDocLine(" * @author " + author);
-        topLevelClass.addJavaDocLine(" * @date " + dateFormatter.format(new Date()));
-        topLevelClass.addJavaDocLine(" */");
-
-        return new GeneratedJavaFile(topLevelClass, targetProject, "utf-8", this.context.getJavaFormatter());
-    }
-
-
-    /**
-     * 生成额外的mapper.xml文件
-     *
-     * @param introspectedTable
-     * @return
-     */
-    @Override
-    public List<GeneratedXmlFile> contextGenerateAdditionalXmlFiles(IntrospectedTable introspectedTable) {
-        String filePath = genFilePath(baseDir, targetProjectXml, targetPackageXml, mapperExtendName, ".xml");
-        List<String> oldFileContent = new ArrayList<>();
-        String domainType = introspectedTable.getBaseRecordType();
-        Document document = new Document(
-                XmlConstants.MYBATIS3_MAPPER_CONFIG_PUBLIC_ID,
-                XmlConstants.MYBATIS3_MAPPER_SYSTEM_ID);
-        XmlElement root = new XmlElement("mapper");
-        document.setRootElement(root);
-        root.addAttribute(new Attribute("namespace", targetPackage + "." + mapperExtendName));
-        root.addElement(new TextElement("<!--"));
-        root.addElement(new TextElement("该文件是由NarcMybatisGenerator自动生成的文件"));
-        root.addElement(new TextElement("建议将所有自定义的SQL保存在该文件中"));
-        root.addElement(new TextElement("请注意不要删除此文件的注释内容"));
-        root.addElement(new TextElement("-->"));
-
-        XmlElement resultMap = new XmlElement("resultMap");
-        resultMap.addAttribute(new Attribute("id", "BaseResultMap"));
-        resultMap.addAttribute(new Attribute("type", domainType));
-
-        List<IntrospectedColumn> primaryKeyColumns = introspectedTable.getPrimaryKeyColumns();
-        for (IntrospectedColumn primaryKeyColumn : primaryKeyColumns) {
-            this.addResultElement(resultMap,
-                    "id", primaryKeyColumn.getActualColumnName(), primaryKeyColumn.getJdbcTypeName(), primaryKeyColumn.getJavaProperty());
-        }
-
-        List<IntrospectedColumn> baseColumns = introspectedTable.getBaseColumns();
-        for (IntrospectedColumn baseColumn : baseColumns) {
-            this.addResultElement(resultMap, "result", baseColumn.getActualColumnName(), baseColumn.getJdbcTypeName(), baseColumn.getJavaProperty());
-        }
-
-        List<IntrospectedColumn> blobColumns = introspectedTable.getBLOBColumns();
-        for (IntrospectedColumn blobColumn : blobColumns) {
-            this.addResultElement(resultMap, "result", blobColumn.getActualColumnName(), blobColumn.getJdbcTypeName(), blobColumn.getJavaProperty());
-        }
-        root.addElement(resultMap);
-        XmlElement baseColumnList = new XmlElement("sql");
-        baseColumnList.addAttribute(new Attribute("id", "Base_Column_List"));
-
-        List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
-
-        Iterator<IntrospectedColumn> iter =allColumns.iterator();
-        StringBuilder sb = new StringBuilder();
-        while (iter.hasNext()) {
-            sb.append(MyBatis3FormattingUtilities.getSelectListPhrase(iter
-                    .next()));
-            if (iter.hasNext()) {
-                sb.append(", "); //$NON-NLS-1$
-            }
-            if (sb.length() > 80) {
-                baseColumnList.addElement(new TextElement(sb.toString()));
-                sb.setLength(0);
-            }
-        }
-        if (sb.length() > 0) {
-            baseColumnList.addElement(new TextElement(sb.toString()));
-        }
-        root.addElement(baseColumnList);
-
+        String filePath = genFilePath(baseDir, targetProjectXml, targetPackageXml, mapperName, ".xml");
         if (isOverWrite || !new File(filePath).exists()) {
             //如果需要重新或是新生成文件
             root.addElement(new TextElement("<!-- " + tagString + "-->"));
         } else {
             System.out.println(filePath + "文件存在，重写非自定义部分");
-            oldFileContent = FileUtils.readFileToListByLine(filePath.toString());
+            List<String> oldFileContent = FileUtils.readFileToListByLine(filePath.toString());
             boolean flag = false;
             for (String str : oldFileContent) {
                 if (str.startsWith("  ")) {
@@ -366,16 +276,174 @@ public class MyPluginAdapter extends PluginAdapter {
             }
         }
 
-        GeneratedXmlFile gxf = new GeneratedXmlFile(document,
-                mapperExtendName + ".xml",
-                targetPackageXml,
-                targetProjectXml,
-                false, context.getXmlFormatter());
+        return true;
+    }
 
-        List<GeneratedXmlFile> res = new ArrayList<>(1);
-        res.add(gxf);
+    @Override
+    public boolean sqlMapGenerated(GeneratedXmlFile sqlMap, IntrospectedTable introspectedTable) {
+        mapperName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "Mapper";
+        daoServiceName = introspectedTable.getFullyQualifiedTable().getDomainObjectName() + "DaoService";
+        sqlMap.setMergeable(false);
+        return true;
+    }
+
+    @Override
+    public List<GeneratedJavaFile> contextGenerateAdditionalJavaFiles(IntrospectedTable introspectedTable) {
+        List<GeneratedJavaFile> res = new ArrayList<>();
+        GeneratedJavaFile daoService = generateDaoService(introspectedTable);
+        if (daoService != null) {
+            res.add(daoService);
+        }
+
         return res;
     }
+
+    private GeneratedJavaFile generateDaoService(IntrospectedTable introspectedTable) {
+        String filePath = genFilePath(baseDir, targetProject, servicePackage + ".bean.dao.service", daoServiceName, ".java");
+
+        if (!isOverWrite && new File(filePath).exists()) {
+            //不重写文件
+            System.out.println(filePath + "文件存在，不生成");
+            return null;
+        }
+        //类名
+        TopLevelClass topLevelClass = new TopLevelClass(servicePackage + ".bean.dao.service." + daoServiceName);
+        //权限
+        topLevelClass.setVisibility(JavaVisibility.PUBLIC);
+        //import
+        topLevelClass.addImportedType(introspectedTable.getBaseRecordType());
+        topLevelClass.addImportedType(introspectedTable.getMyBatis3JavaMapperType());
+        topLevelClass.addImportedType("org.springframework.stereotype.Service");
+        topLevelClass.addImportedType("javax.annotation.Resource");
+        //类注解
+        topLevelClass.addAnnotation("@Service");
+        //属性
+        Field field = new Field(lowerFirst(mapperName), new FullyQualifiedJavaType(mapperName));
+        field.setVisibility(JavaVisibility.PRIVATE);
+        field.addAnnotation("@Resource");
+        topLevelClass.addField(field);
+
+//        field = new Field(lowerFirst(mapperExtendName), new FullyQualifiedJavaType(mapperExtendName));
+//        field.setVisibility(JavaVisibility.PRIVATE);
+//        field.addAnnotation("@Resource");
+//        topLevelClass.addField(field);
+        //类注释
+        topLevelClass.addJavaDocLine("/**");
+        topLevelClass.addJavaDocLine(" * DaoService");
+        topLevelClass.addJavaDocLine(" * @author " + author);
+        topLevelClass.addJavaDocLine(" * @date " + dateFormatter.format(new Date()));
+        topLevelClass.addJavaDocLine(" */");
+
+        return new GeneratedJavaFile(topLevelClass, targetProject, "utf-8", this.context.getJavaFormatter());
+    }
+
+
+//    /**
+//     * 生成额外的mapper.xml文件
+//     *
+//     * @param introspectedTable
+//     * @return
+//     */
+//    @Override
+//    public List<GeneratedXmlFile> contextGenerateAdditionalXmlFiles(IntrospectedTable introspectedTable) {
+//        String filePath = genFilePath(baseDir, targetProjectXml, targetPackageXml, mapperExtendName, ".xml");
+//        List<String> oldFileContent = new ArrayList<>();
+//        String domainType = introspectedTable.getBaseRecordType();
+//        Document document = new Document(
+//                XmlConstants.MYBATIS3_MAPPER_CONFIG_PUBLIC_ID,
+//                XmlConstants.MYBATIS3_MAPPER_SYSTEM_ID);
+//        XmlElement root = new XmlElement("mapper");
+//        document.setRootElement(root);
+//        root.addAttribute(new Attribute("namespace", targetPackage + "." + mapperExtendName));
+//        root.addElement(new TextElement("<!--"));
+//        root.addElement(new TextElement("该文件是由NarcMybatisGenerator自动生成的文件"));
+//        root.addElement(new TextElement("建议将所有自定义的SQL保存在该文件中"));
+//        root.addElement(new TextElement("请注意不要删除此文件的注释内容"));
+//        root.addElement(new TextElement("-->"));
+//
+//        XmlElement resultMap = new XmlElement("resultMap");
+//        resultMap.addAttribute(new Attribute("id", "BaseResultMap"));
+//        resultMap.addAttribute(new Attribute("type", domainType));
+//
+//        List<IntrospectedColumn> primaryKeyColumns = introspectedTable.getPrimaryKeyColumns();
+//        for (IntrospectedColumn primaryKeyColumn : primaryKeyColumns) {
+//            this.addResultElement(resultMap,
+//                    "id", primaryKeyColumn.getActualColumnName(), primaryKeyColumn.getJdbcTypeName(), primaryKeyColumn.getJavaProperty());
+//        }
+//
+//        List<IntrospectedColumn> baseColumns = introspectedTable.getBaseColumns();
+//        for (IntrospectedColumn baseColumn : baseColumns) {
+//            this.addResultElement(resultMap, "result", baseColumn.getActualColumnName(), baseColumn.getJdbcTypeName(), baseColumn.getJavaProperty());
+//        }
+//
+//        List<IntrospectedColumn> blobColumns = introspectedTable.getBLOBColumns();
+//        for (IntrospectedColumn blobColumn : blobColumns) {
+//            this.addResultElement(resultMap, "result", blobColumn.getActualColumnName(), blobColumn.getJdbcTypeName(), blobColumn.getJavaProperty());
+//        }
+//        root.addElement(resultMap);
+//        XmlElement baseColumnList = new XmlElement("sql");
+//        baseColumnList.addAttribute(new Attribute("id", "Base_Column_List"));
+//
+//        List<IntrospectedColumn> allColumns = introspectedTable.getAllColumns();
+//
+//        Iterator<IntrospectedColumn> iter =allColumns.iterator();
+//        StringBuilder sb = new StringBuilder();
+//        while (iter.hasNext()) {
+//            sb.append(MyBatis3FormattingUtilities.getSelectListPhrase(iter
+//                    .next()));
+//            if (iter.hasNext()) {
+//                sb.append(", "); //$NON-NLS-1$
+//            }
+//            if (sb.length() > 80) {
+//                baseColumnList.addElement(new TextElement(sb.toString()));
+//                sb.setLength(0);
+//            }
+//        }
+//        if (sb.length() > 0) {
+//            baseColumnList.addElement(new TextElement(sb.toString()));
+//        }
+//        root.addElement(baseColumnList);
+//
+//        if (isOverWrite || !new File(filePath).exists()) {
+//            //如果需要重新或是新生成文件
+//            root.addElement(new TextElement("<!-- " + tagString + "-->"));
+//        } else {
+//            System.out.println(filePath + "文件存在，重写非自定义部分");
+//            oldFileContent = FileUtils.readFileToListByLine(filePath.toString());
+//            boolean flag = false;
+//            for (String str : oldFileContent) {
+//                if (str.startsWith("  ")) {
+//                    //删除前面的空格，对齐格式
+//                    str = str.substring(2);
+//                }
+//                if (!flag) {
+//                    if (str.contains(tagString)) {
+//                        flag = true;
+//                        root.addElement(new TextElement(str));
+//                    }
+//                    continue;
+//                }
+//                if (str.contains("</mapper>")) {
+//                    continue;
+//                }
+//                root.addElement(new TextElement(str));
+//            }
+//            if (!flag && oldFileContent.size() > 0) {
+//                //如果不存在标记注释，可能是用户删除了，重新增加
+//                root.addElement(new TextElement("<!-- " + tagString + "-->"));
+//            }
+//        }
+//
+//        GeneratedXmlFile gxf = new GeneratedXmlFile(document,
+//                mapperExtendName + ".xml",
+//                targetPackageXml,
+//                targetProjectXml,
+//                false, context.getXmlFormatter());
+//
+//        List<GeneratedXmlFile> res = new ArrayList<>(1);
+//        res.add(gxf);
+//        return res;
+//    }
 
     private void addResultElement(XmlElement resultMap, String ele, String actualColumnName, String jdbcTypeName, String javaProperty) {
         XmlElement result = new XmlElement(ele);
@@ -401,5 +469,161 @@ public class MyPluginAdapter extends PluginAdapter {
         }
         return c + str.substring(1);
     }
+
+
+    @Override
+    public boolean modelExampleClassGenerated(TopLevelClass topLevelClass,
+                                              IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapCountByExampleElementGenerated(XmlElement element,
+                                                        IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapDeleteByExampleElementGenerated(XmlElement element,
+                                                         IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapSelectByExampleWithoutBLOBsElementGenerated(
+            XmlElement element, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapSelectByExampleWithBLOBsElementGenerated(
+            XmlElement element, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapUpdateByExampleSelectiveElementGenerated(
+            XmlElement element, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapUpdateByExampleWithBLOBsElementGenerated(
+            XmlElement element, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+
+    @Override
+    public boolean sqlMapUpdateByExampleWithoutBLOBsElementGenerated(
+            XmlElement element, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerCountByExampleMethodGenerated(Method method,
+                                                         TopLevelClass topLevelClass, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerDeleteByExampleMethodGenerated(Method method,
+                                                          TopLevelClass topLevelClass, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerSelectByExampleWithBLOBsMethodGenerated(
+            Method method, TopLevelClass topLevelClass,
+            IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerSelectByExampleWithoutBLOBsMethodGenerated(
+            Method method, TopLevelClass topLevelClass,
+            IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerUpdateByExampleSelectiveMethodGenerated(
+            Method method, TopLevelClass topLevelClass,
+            IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerUpdateByExampleWithBLOBsMethodGenerated(
+            Method method, TopLevelClass topLevelClass,
+            IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean providerUpdateByExampleWithoutBLOBsMethodGenerated(
+            Method method, TopLevelClass topLevelClass,
+            IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientCountByExampleMethodGenerated(Method method,
+                                                       Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientDeleteByExampleMethodGenerated(Method method,
+                                                        Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientSelectByExampleWithBLOBsMethodGenerated(Method method,
+                                                                 Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientSelectByExampleWithoutBLOBsMethodGenerated(Method method,
+                                                                    Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientUpdateByExampleSelectiveMethodGenerated(Method method,
+                                                                 Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientUpdateByExampleWithBLOBsMethodGenerated(Method method,
+                                                                 Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean clientUpdateByExampleWithoutBLOBsMethodGenerated(Method method,
+                                                                    Interface interfaze, IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean sqlMapExampleWhereClauseElementGenerated(XmlElement element,
+                                                            IntrospectedTable introspectedTable) {
+        return false;
+    }
+
+    @Override
+    public boolean modelSetterMethodGenerated(Method method, TopLevelClass topLevelClass, IntrospectedColumn introspectedColumn, IntrospectedTable introspectedTable, ModelClassType modelClassType) {
+        return false;
+    }
+
+    @Override
+    public boolean modelGetterMethodGenerated(Method method, TopLevelClass topLevelClass, IntrospectedColumn introspectedColumn, IntrospectedTable introspectedTable, ModelClassType modelClassType) {
+        return false;
+    }
+
 
 }

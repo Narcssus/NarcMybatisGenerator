@@ -61,10 +61,10 @@ public class MyCommentGenerator implements CommentGenerator {
         //增加长度校验
         if (introspectedColumn.isJdbcCharacterColumn()) {
             int length = introspectedColumn.getLength();
-            field.addAnnotation("@Size(max=" + length + ")");
+            field.addAnnotation("@Size(max = " + length + ")");
         }
         //增加非空校验
-        if(!introspectedColumn.isNullable()){
+        if(!introspectedColumn.isNullable() && !introspectedColumn.isAutoIncrement()){
             field.addAnnotation("@NotNull");
         }
     }
